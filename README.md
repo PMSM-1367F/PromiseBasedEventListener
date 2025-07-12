@@ -58,3 +58,10 @@ ___
   - `handlerOnFailed`: シグナルが失敗したときに実行する関数。この関数は1つの引数 `reason`を取ることができる。
 - `Signal.prototype.catch()`: 失敗したシグナルを処理する。この関数は引数を1つ取る。
   - `handlerOnFailed`: シグナルが失敗したときに実行する関数。この関数は1つの引数 `reason`を取ることができる。
+___
+## EventSignal
+### 静的メソッド
+- `EventSignal.addEventListenerTo()`: 要素にイベントリスナーを登録。引数は3つ。
+  - `element`: イベントリスナーを追加する要素。
+  - `evType`: イベントのタイプ。既存の `addEventListener()`と同じ。
+  - `options`: イベント オプション。既存の `addEventListener()`と同じ。
