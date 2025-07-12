@@ -5,7 +5,7 @@
 しかし、`EventSignal.addEventListenerTo()`を使えば、プロミスベースのような構文でイベントリスナーを追加できます！( `addEventListener()`と同じ挙動になる)
 
 例を以下に示します:
-```
+```js
 const element1 = document.querySelector('example1');
 const element2 = document.querySelector('example2');
 
