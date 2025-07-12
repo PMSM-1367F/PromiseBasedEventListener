@@ -4,14 +4,14 @@ const btn3 = document.querySelector('#btn3');
 
 EventSignal.addEventListenerTo(btn1, 'click')
     .receive(data => {
-        console.log(data, 'first');
+        alert('first message!');
         return EventSignal.addEventListenerTo(btn2, 'click');
     })
     .receive(data => {
-        console.log(data, 'second');
+        alert('second message!');
         return EventSignal.addEventListenerTo(btn3, 'click');
     })
-    .receive(data => console.log(data, 'third'));
+    .receive(data => alert('third message!'););
 
 new Signal(raise => {
     const ID = setInterval(() => raise(ID), 1000);
