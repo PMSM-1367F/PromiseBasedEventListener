@@ -74,14 +74,16 @@ class Signal {
         const currentThis = this;
         const { signal, raiser, thrower } = Signal.withRaisers();
         try {
-            switch (this.#detector.s) {
-                case 1:
-                    this.#handle(raiser, handlerOnRaised, currentThis);
-                    break;
-                case 2:
-                    this.#handle(raiser, handlerOnFailed, currentThis);
-                    break;
-            }
+            setTimeout(() => {
+                switch (this.#detector.s) {
+                    case 1:
+                        this.#handle(raiser, handlerOnRaised, currentThis);
+                        break;
+                    case 2:
+                        this.#handle(raiser, handlerOnFailed, currentThis);
+                        break;
+                }
+            }, 0);
         } catch(e) {
             thrower(e);
         }
@@ -111,10 +113,10 @@ class Signal {
         return this.receive(undefined, handlerOnFailed);
     }
     static raise(raiseValue) {
-        return new this(raise => setTimeout(() => raise(raiseValue), 1));
+        return new this(raise => raise(raiseValue));
     }
     static throw(throwValue) {
-        return new this((_, error) => setTimeout(() => error(throwValue), 1));
+        return new this((_, error) => error(throwValue));
     }
     static withRaisers() {
         const returnObj = {
