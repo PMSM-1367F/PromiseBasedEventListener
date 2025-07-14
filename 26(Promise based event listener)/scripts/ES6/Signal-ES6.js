@@ -1,136 +1,173 @@
-/**
- * @typedef {(data: any) => any} HandlerOnRaised
- * @typedef {(reason: any) => any} HandlerOnFailed
- * @typedef {(raiseVal?: any) => void} SignalRaiser
- * @typedef {(reason?: any) => void} SignalThrower
- */
-
-class Signal {
-    static NOT_RAISED = 0;
-    static RAISED = 1;
-    static FAILED = 2;
-    static CLOSED = 3;
-
-    #data;
-    #detector = { s: Signal.NOT_RAISED };
-    /**
-     * レイざーを取得
-     * @param {Signal} thisArg thisとして扱う Signal インスタンスの値
-     * @returns raiser
-     */
-    static #getRaiser(thisArg) {
-        return function raiser(val) {
-            thisArg.#data = val;
-            // Signalのインスタンスなら シグナルのstateが1になるのを待つ
-            thisArg.#data instanceof Signal ?
-                thisArg.#data.receive(() => thisArg.#detector.s = Signal.RAISED) :
-                thisArg.#detector.s = Signal.RAISED;
-        };
-    };
-    /**
-     * すろわーを取得
-     * @param {Signal} thisArg thisとして扱う Signal インスタンスの値
-     * @returns thrower
-     */
-    static #getThrower(thisArg) {
-        return function thrower(reason) {
-            thisArg.#data = reason;
-            thisArg.#detector.s = Signal.FAILED;
-        }
+class SignalFailError extends Error {
+    constructor(cause, failCount) {
+        super(SignalFailError.message, { cause });
+        this.failCount = failCount;
     }
-    /**
-     * 
-     * @param {SignalRaiser | SignalThrower} resolver stateを0以外にする関数
-     * @param {HandlerOnRaised | HandlerOnFailed} handler ハンドラー
-     * @param {Signal} thisArg thisの値
-     */
-    #handle(resolver, handler, thisArg) {
-        let handlerResult = handler(thisArg.#data);
-        (
-            handlerResult instanceof Signal ?
-                handlerResult.receive(data => resolver(data)) :
-                resolver(handlerResult)
-        );
+    get name() {
+        return 'SignalFailError';
     }
-    /**
-     * 新しいシグナル
-     * @param {(raise: SignalRaiser, error: SignalThrower) => void} executor 
-     */
-    constructor(executor) {
-        executor(Signal.#getRaiser(this), Signal.#getThrower(this));
-    }
-    /**
-     * シグナル チェーンを形成する
-     * @param {HandlerOnRaised} handlerOnRaised stateがRAISEDになったら実行される関数
-     * @param {HandlerOnFailed} handlerOnFailed stateがFAILEDになったら実行される関数
-     */
-    receive(handlerOnRaised, handlerOnFailed) {
-        if (!(typeof handlerOnRaised === 'function')) {
-            handlerOnRaised = x => x;
-        }
-        if (!(typeof handlerOnFailed === 'function')) {
-            handlerOnFailed = e => { throw e }
-        }
-        const currentThis = this;
-        const { signal, raiser, thrower } = Signal.withRaisers();
-        try {
-            setTimeout(() => {
-                switch (this.#detector.s) {
-                    case 1:
-                        this.#handle(raiser, handlerOnRaised, currentThis);
-                        break;
-                    case 2:
-                        this.#handle(raiser, handlerOnFailed, currentThis);
-                        break;
-                }
-            }, 0);
-        } catch(e) {
-            thrower(e);
-        }
-        this.#detector = new Proxy(this.#detector, {
-            set(t, k, v) {
-                if (k === 's') {
-                    switch (v) {
-                        case 1:
-                            currentThis.#handle(raiser, handlerOnRaised, currentThis);
-                            break;
-                        case 2:
-                            currentThis.#handle(raiser, handlerOnFailed, currentThis);
-                            break;
-                    }
-                }
-                return Reflect.set(t, k, v);
-            }
-        });
-        return signal;
-    }
-    /**
-     * 
-     * @param {HandlerOnFailed} handlerOnFailed 失敗時に呼び出される
-     * @returns 新しいSignal
-     */
-    catch(handlerOnFailed){
-        return this.receive(undefined, handlerOnFailed);
-    }
-    static raise(raiseValue) {
-        return new this(raise => raise(raiseValue));
-    }
-    static throw(throwValue) {
-        return new this((_, error) => error(throwValue));
-    }
-    static withRaisers() {
-        const returnObj = {
-            signal: new this(() => { }),
-            get raiser() {
-                return Signal.#getRaiser(returnObj.signal)
-            },
-            get thrower() {
-                return Signal.#getThrower(returnObj.signal);
-            }
-        };
-        return returnObj;
+    static get message() {
+        return 'Signal has failed.';
     }
 }
+
+const Signal = (() => {
+    /**
+     * @typedef {(info: SignalInfo) => any} HandlerOnRaised
+     * @typedef {(reason: SignalFailError) => any} HandlerOnFailed
+     * @typedef {(raiseVal?: any) => void} SignalRaiser
+     * @typedef {(reason?: any) => void} SignalThrower
+     */
+
+    class SignalInfo {
+        constructor(info, count) {
+            this.data = info;
+            this.signalCount = count;
+        }
+    }
+    /**
+     * シグナル
+     * @class Signal
+     */
+    return class Signal {
+        static NOT_RAISED = 0;
+        static RAISED = 1;
+        static FAILED = 2;
+        static CLOSED = 3;
+
+        #data;
+        #detector = { s: Signal.NOT_RAISED };
+        /**
+         * レイざーを取得
+         * @param {Signal} thisArg thisとして扱う Signal インスタンスの値
+         * @returns {SignalRaiser} raiser
+         */
+        static #getRaiser(thisArg) {
+            let counter = 0;
+            /**
+             * シグナルをraiseする関数
+             * @param {any} val raiseする値
+             * @returns {void}
+             */
+            return function raiser(val) {
+                thisArg.#data = new SignalInfo(val, ++counter);
+                // Signalのインスタンスなら シグナルのstateが1になるのを待つ
+                thisArg.#data instanceof Signal ?
+                    thisArg.#data.receive(() => thisArg.#detector.s = Signal.RAISED) :
+                    thisArg.#detector.s = Signal.RAISED;
+            };
+        };
+        /**
+         * すろわーを取得
+         * @param {Signal} thisArg thisとして扱う Signal インスタンスの値
+         * @returns {SignalThrower} thrower
+         */
+        static #getThrower(thisArg) {
+            let failCounter = 0;
+            /**
+             * シグナルをfailさせる関数
+             * @param {any} reason throwする理由
+             * @returns {void}
+             */
+            return function thrower(reason) {
+                thisArg.#data = new SignalFailError(reason, ++failCounter);
+                thisArg.#detector.s = Signal.FAILED;
+            }
+        }
+        /**
+         * 
+         * @param {SignalRaiser | SignalThrower} resolver stateを0以外にする関数
+         * @param {HandlerOnRaised | HandlerOnFailed} handler ハンドラー
+         * @param {Signal} thisArg thisの値
+         */
+        #handle(resolver, handler, thisArg) {
+            let handlerResult = handler(thisArg.#data);
+            (
+                handlerResult instanceof Signal ?
+                    handlerResult.receive(info => resolver(info)) :
+                    resolver(handlerResult)
+            );
+        }
+        /**
+         * 新しいシグナル
+         * @param {(raise: SignalRaiser, error: SignalThrower) => void} executor 
+         */
+        constructor(executor) {
+            executor(Signal.#getRaiser(this), Signal.#getThrower(this));
+        }
+        /**
+         * シグナル チェーンを形成する
+         * @param {HandlerOnRaised} handlerOnRaised stateがRAISEDになったら実行される関数
+         * @param {HandlerOnFailed} handlerOnFailed stateがFAILEDになったら実行される関数
+         */
+        receive(handlerOnRaised, handlerOnFailed) {
+            if (typeof handlerOnRaised !== 'function') {
+                handlerOnRaised = x => x;
+            }
+            if (typeof handlerOnFailed !== 'function') {
+                handlerOnFailed = e => { throw e }
+            }
+            const currentThis = this;
+            const { signal, raiser, thrower } = Signal.withRaisers();
+            try {
+                setTimeout(() => {
+                    switch (this.#detector.s) {
+                        case 1:
+                            this.#handle(raiser, handlerOnRaised, currentThis);
+                            break;
+                        case 2:
+                            this.#handle(raiser, handlerOnFailed, currentThis);
+                            break;
+                    }
+                }, 0);
+            } catch (e) {
+                thrower(e);
+            }
+            this.#detector = new Proxy(this.#detector, {
+                set(t, k, v) {
+                    if (k === 's') {
+                        switch (v) {
+                            case 1:
+                                currentThis.#handle(raiser, handlerOnRaised, currentThis);
+                                break;
+                            case 2:
+                                currentThis.#handle(raiser, handlerOnFailed, currentThis);
+                                break;
+                        }
+                    }
+                    return Reflect.set(t, k, v);
+                }
+            });
+            return signal;
+        }
+        /**
+         * 
+         * @param {HandlerOnFailed} handlerOnFailed 失敗時に呼び出される
+         * @returns 新しいSignal
+         */
+        catch(handlerOnFailed) {
+            return this.receive(undefined, handlerOnFailed);
+        }
+        static raise(raiseValue) {
+            return new this(raise => raise(raiseValue));
+        }
+        static throw(throwValue) {
+            return new this((_, error) => error(throwValue));
+        }
+        static withRaisers() {
+            const returnObj = {
+                signal: new this(() => { }),
+                get raiser() {
+                    return Signal.#getRaiser(returnObj.signal)
+                },
+                get thrower() {
+                    return Signal.#getThrower(returnObj.signal);
+                }
+            };
+            return returnObj;
+        }
+    }
+})();
 
 class EventSignal extends Signal {
     /**
@@ -145,3 +182,26 @@ class EventSignal extends Signal {
         }, options));
     }
 }
+
+const btn1 = document.querySelector('#btn1');
+const btn2 = document.querySelector('#btn2');
+const btn3 = document.querySelector('#btn3');
+
+EventSignal.addEventListenerTo(btn1, 'click')
+    .receive(info => {
+        console.log(info, 'first');
+        return EventSignal.addEventListenerTo(btn2, 'click');
+    })
+    .receive(info => {
+        console.log(info, 'second');
+        return EventSignal.addEventListenerTo(btn3, 'click');
+    })
+    .receive(info => console.log(info, 'third'));
+
+new Signal(raise => {
+    const ID = setInterval(() => raise(ID), 1000);
+})
+    .receive(info => {
+        console.log(info, 'setInterval');
+        setTimeout(() => clearInterval(info.data), 10000);
+    });
