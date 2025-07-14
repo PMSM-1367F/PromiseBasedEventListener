@@ -11,7 +11,7 @@ EventSignal.addEventListenerTo(btn1, 'click')
         alert('second message!');
         return EventSignal.addEventListenerTo(btn3, 'click');
     })
-    .receive(data => alert('third message!'););
+    .receive(data => alert('third message!'));
 
 new Signal(raise => {
     const ID = setInterval(() => raise(ID), 1000);
