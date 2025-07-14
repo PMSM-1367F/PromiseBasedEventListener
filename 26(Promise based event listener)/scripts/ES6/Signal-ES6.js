@@ -182,26 +182,3 @@ class EventSignal extends Signal {
         }, options));
     }
 }
-
-const btn1 = document.querySelector('#btn1');
-const btn2 = document.querySelector('#btn2');
-const btn3 = document.querySelector('#btn3');
-
-EventSignal.addEventListenerTo(btn1, 'click')
-    .receive(info => {
-        console.log(info, 'first');
-        return EventSignal.addEventListenerTo(btn2, 'click');
-    })
-    .receive(info => {
-        console.log(info, 'second');
-        return EventSignal.addEventListenerTo(btn3, 'click');
-    })
-    .receive(info => console.log(info, 'third'));
-
-new Signal(raise => {
-    const ID = setInterval(() => raise(ID), 1000);
-})
-    .receive(info => {
-        console.log(info, 'setInterval');
-        setTimeout(() => clearInterval(info.data), 10000);
-    });
