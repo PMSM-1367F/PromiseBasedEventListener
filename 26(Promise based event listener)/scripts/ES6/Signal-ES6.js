@@ -148,6 +148,11 @@ const Signal = (() => {
         catch(handlerOnFailed) {
             return this.receive(undefined, handlerOnFailed);
         }
+        toOncePromise() {
+            return new Promise((resolve, reject) => {
+                this.receive(resolve, reject);
+            });
+        }
         static raise(raiseValue) {
             return new this(raise => raise(raiseValue));
         }
