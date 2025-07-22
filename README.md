@@ -71,7 +71,7 @@ ___
 ___
 ## EventSignal
 ### 静的メソッド
-- `EventSignal.addEventListenerTo()`: 要素にイベントリスナーを登録。引数は3つ。
+- `EventSignal.addEventListenerTo()`: 要素にイベントリスナーを登録。引数は3つ。イベントに関する `Signal`を返す
   - `element`: イベントリスナーを追加する要素。
   - `evType`: イベントのタイプ。既存の `addEventListener()`と同じ。
   - `options`: イベント オプション。既存の `addEventListener()`と同じ。
