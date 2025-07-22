@@ -171,6 +171,83 @@ const Signal = (() => {
             };
             return returnObj;
         }
+        /**
+         * 複数のシグナルをまとめて処理する
+         * @param {...Signal} signals シグナルの配列
+         * @returns 新しいSignal
+         */
+        static all(...signals) {
+            return new this((raise, error) => {
+                let count = 0;
+                /**
+                 * @type {SignalInfo[]}
+                 */
+                const results = [];
+                signals.forEach(signal => {
+                    signal.receive(
+                        info => {
+                            results.push(info);
+                            if (++count === signals.length) {
+                                raise(results);
+                            }
+                        },
+                        err => error(err)
+                    );
+                });
+            });
+        }
+        /**
+         * 複数のシグナルのうち、最初に成功したものを返す
+         * @param {...Signal} signals シグナルの配列
+         * @returns 新しいSignal
+         */
+        static any(...signals) {
+            return new this((raise, error) => {
+                let count = 0;
+                const errors = [];
+                signals.forEach(signal => {
+                    signal.receive(
+                        info => raise(info.data),
+                        err => {
+                            errors.push(err);
+                            if (++count === signals.length) {
+                                error(new AggregateError(errors, 'All signals failed.'));
+                            }
+                        }
+                    );
+                });
+            });
+        }
+        /**
+         * 複数のシグナルの結果をまとめて返す
+         * @param {...Signal} signals シグナルの配列
+         * @returns 新しいSignal
+         */
+        static allSettled(...signals) {
+            return new this((raise) => {
+                let count = 0;
+                /**
+                 * @type {SignalInfo[]}
+                 */
+                const results = [];
+                signals.forEach(signal => {
+                    signal.receive(
+                        info => {
+                            results.push({data: info.data, status: 'raised'});
+                            if (++count === signals.length) {
+                                raise(results);
+                            }
+                        },
+                        err => {
+                            results.push({reason: err.cause, status: 'failed'});
+                            if (++count === signals.length) {
+                                raise(results);
+                            }
+                        }
+                    );
+                });
+            });
+        }
     }
 })();
 
