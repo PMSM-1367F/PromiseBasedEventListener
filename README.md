@@ -52,6 +52,16 @@ ___
   - `signal` 新しい `Signal`
   - `raiser`: `raise()`関数と同じ役割。
   - `thrower`: `error()`関数と同じ役割。
+- `Signal.all` 可変長の `Signal`を受け取り、以下を返す。
+  - シグナルが1つでもエラーを発生した場合: エラーが発生したシグナルを返す。
+  - すべて正しく送られた場合: 結果をまとめた `Signal`を送る。
+- `Signal.any` 可変長の `Signal`を受け取り、以下を返す。
+  - シグナルが1つでも送られた場合: 送られたシグナルを返す。
+  - すべてエラーを発生させた場合: `AggregateError`でエラーをまとめて発生させた `Signal`を返す。
+- `Signal.allSettled` 可変長の `Signal`を受け取り、以下のプロパティがあるオブジェクトをまとめた配列を返す。
+  - `status`: `raised`または `failed`
+  - `data`: `status === 'raised'`の場合、送られたシグナルの値。
+  - `reason`: `status === 'failed'`の場合、シグナルの失敗理由。
 ### インスタンスメソッド
 - `Signal.prototype.receive()`: 送られてきたシグナルを処理する。この関数は引数を2つ取る。
   - `handlerOnRaised`: シグナルが送られてきたときに実行する関数。この関数は1つの引数 `data`を取ることができる。
