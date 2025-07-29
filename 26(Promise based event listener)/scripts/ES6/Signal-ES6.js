@@ -84,7 +84,7 @@ const Signal = (() => {
             let handlerResult = handler(thisArg.#data);
             (
                 handlerResult instanceof Signal ?
-                    handlerResult.receive(info => resolver(info)) :
+                    handlerResult.receive(info => resolver(info.data)) :
                     resolver(handlerResult)
             );
         }
@@ -123,20 +123,18 @@ const Signal = (() => {
             } catch (e) {
                 thrower(e);
             }
-            this.#detector = new Proxy(this.#detector, {
-                set(t, k, v) {
-                    if (k === 's') {
-                        switch (v) {
-                            case 1:
-                                currentThis.#handle(raiser, handlerOnRaised, currentThis);
-                                break;
-                            case 2:
-                                currentThis.#handle(raiser, handlerOnFailed, currentThis);
-                                break;
-                        }
+            Object.defineProperty(this.#detector, 'state', {
+                set(state) {
+                    switch (state) {
+                        case 1:
+                            currentThis.#handle(raiser, handlerOnRaised, currentThis);
+                            break;
+                        case 2:
+                            currentThis.#handle(raiser, handlerOnFailed, currentThis);
+                            break;
                     }
-                    return Reflect.set(t, k, v);
-                }
+                    this.s = state;
+                },
             });
             return signal;
         }
@@ -160,16 +158,15 @@ const Signal = (() => {
             return new this((_, error) => error(throwValue));
         }
         static withRaisers() {
-            const returnObj = {
+            return {
                 signal: new this(() => { }),
                 get raiser() {
-                    return Signal.#getRaiser(returnObj.signal)
+                    return Signal.#getRaiser(this.signal)
                 },
                 get thrower() {
-                    return Signal.#getThrower(returnObj.signal);
+                    return Signal.#getThrower(this.signal);
                 }
             };
-            return returnObj;
         }
         /**
          * 複数のシグナルをまとめて処理する
@@ -246,6 +243,46 @@ const Signal = (() => {
                         }
                     );
                 });
+            });
+        }
+        /**
+         * 複数のシグナルのうち、最初に解決したものを返す
+         * @param {...Signal} signals シグナルの配列
+         * @returns 新しいSignal
+         */
+        static race(...signals) {
+            return new this((raise, error) => {
+                let isSomeSignalResolved = false;
+                signals.forEach(signal => {
+                    signal.receive(
+                        info => {
+                            if (!isSomeSignalResolved) {
+                                isSomeSignalResolved = true;
+                                raise(info.data);
+                            }
+                        },
+                        err => {
+                            if (!isSomeSignalResolved) {
+                                isSomeSignalResolved = true;
+                                error(err.cause);
+                            }
+                        }
+                    );
+                });
+            });
+        }
+        static try(callBack) {
+            return new this((raise, error) => {
+                try {
+                    const result = callBack();
+                    if (result instanceof Signal) {
+                        result.receive((inf) => raise(inf.data), (err) => error(err.cause));
+                    } else {
+                        raise(result);
+                    }
+                } catch (e) {
+                    error(e);
+                }
             });
         }
     }
