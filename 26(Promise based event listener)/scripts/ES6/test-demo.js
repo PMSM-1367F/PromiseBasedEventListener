@@ -18,5 +18,5 @@ new Signal(raise => {
 })
     .receive(data => {
         console.log(data, 'setInterval');
-        setTimeout(() => clearInterval(data), 10000);
+        setTimeout(() => clearInterval(data.info), 10000);
     });
