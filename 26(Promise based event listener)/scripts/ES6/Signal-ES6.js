@@ -1,7 +1,11 @@
-class SignalFailError extends Error {
+/**
+ * @type {SignalFailErrorConstructor}
+ */
+const SignalFailError = class SignalFailError extends Error {
     constructor(cause, failCount) {
         super(SignalFailError.message, { cause });
         this.failCount = failCount;
+        console.error('(In Signal)', this.message, cause);
     }
     get name() {
         return 'SignalFailError';
@@ -11,32 +15,85 @@ class SignalFailError extends Error {
     }
 }
 
+/**
+ * @type {SignalConstructor}
+ */
 const Signal = (() => {
-    /**
-     * @typedef {(info: SignalInfo) => any} HandlerOnRaised
-     * @typedef {(reason: SignalFailError) => any} HandlerOnFailed
-     * @typedef {(raiseVal?: any) => void} SignalRaiser
-     * @typedef {(reason?: any) => void} SignalThrower
-     */
-
-    class SignalInfo {
-        constructor(info, count) {
-            this.data = info;
-            this.signalCount = count;
-        }
-    }
     /**
      * シグナル
      * @class Signal
      */
-    return class Signal {
+    class Signal {
+        /**
+         * @readonly
+         */
         static NOT_RAISED = 0;
+        /**
+         * @readonly
+         */
         static RAISED = 1;
+        /**
+         * @readonly
+         */
         static FAILED = 2;
+        /**
+         * @readonly
+         */
         static CLOSED = 3;
 
+        static #SignalInfo = class SignalInfo {
+            /**
+             * @type {Signal}
+             * @private
+             */
+            #signal;
+            /**
+             * @param {any} info シグナルの情報
+             * @param {number} count シグナルのカウント
+             * @param {Signal} signal シグナルのインスタンス
+             * @constructor
+             */
+            constructor(info, count, signal) {
+                this.data = info;
+                this.signalCount = count;
+                this.#signal = signal;
+            }
+
+            closeSignal() {
+                if (this.#signal) {
+                    this.#signal.#detector.state = Signal.CLOSED;
+                    this.#signal.#data = null;
+                }
+            }
+        }
+
+        /**
+         * @type {SignalInfo | SignalFailError}
+         * @private
+         */
         #data;
-        #detector = { s: Signal.NOT_RAISED };
+        #detector = {
+            get state() {
+                return this.s || Signal.NOT_RAISED;
+            },
+            set state(state) {
+                this.s = state;
+            }
+        };
+
+        /**
+         * @type {HandlerOnRaised}
+         */
+        #onRaise;
+        /**
+         * @type {HandlerOnFailed}
+         */
+        #onError;
+        /**
+         * @type {HandlerOnFinally}
+         */
+        #onAll;
+
         /**
          * レイざーを取得
          * @param {Signal} thisArg thisとして扱う Signal インスタンスの値
@@ -50,11 +107,12 @@ const Signal = (() => {
              * @returns {void}
              */
             return function raiser(val) {
-                thisArg.#data = new SignalInfo(val, ++counter);
+                if (thisArg.#detector.state === Signal.CLOSED) return;
+                thisArg.#data = new Signal.#SignalInfo(val, ++counter, thisArg);
                 // Signalのインスタンスなら シグナルのstateが1になるのを待つ
-                thisArg.#data instanceof Signal ?
-                    thisArg.#data.receive(() => thisArg.#detector.s = Signal.RAISED) :
-                    thisArg.#detector.s = Signal.RAISED;
+                thisArg.#data.data instanceof Signal ?
+                    thisArg.#data.data.receive(() => thisArg.#detector.state = Signal.RAISED) :
+                    thisArg.#detector.state = Signal.RAISED;
             };
         };
         /**
@@ -70,23 +128,85 @@ const Signal = (() => {
              * @returns {void}
              */
             return function thrower(reason) {
-                thisArg.#data = new SignalFailError(reason, ++failCounter);
-                thisArg.#detector.s = Signal.FAILED;
+                if (thisArg.#detector.state === Signal.CLOSED) return;
+                thisArg.#data = reason instanceof AggregateError ? reason : new SignalFailError(reason, ++failCounter, false);
+                thisArg.#detector.state = Signal.FAILED;
             }
         }
         /**
          * 
-         * @param {SignalRaiser | SignalThrower} resolver stateを0以外にする関数
-         * @param {HandlerOnRaised | HandlerOnFailed} handler ハンドラー
-         * @param {Signal} thisArg thisの値
+         * @param {SignalRaiser | SignalThrower | null} resolver stateを0以外にする関数
+         * @param {HandlerOnRaised | HandlerOnFailed | HandlerOnFinally} handler ハンドラー
          */
-        #handle(resolver, handler, thisArg) {
-            let handlerResult = handler(thisArg.#data);
+        #handle(resolver, handler) {
+            const handlerResult = handler(this.#data);
+            if (this.#detector.state === 3) {
+                resolver ?? (handler());
+                return;
+            }
             (
                 handlerResult instanceof Signal ?
-                    handlerResult.receive(info => resolver(info.data)) :
-                    resolver(handlerResult)
+                    handlerResult.receive(info => resolver?.(info.data)) :
+                    resolver?.(handlerResult)
             );
+        }
+        /**
+         * 
+         * @param {HandlerOnRaised} handlerOnRaised 
+         * @param {HandlerOnFailed} handlerOnFailed 
+         * @param {HandlerOnFinally} onAllOver 
+         * @returns 
+         */
+        #signalReceive(handlerOnRaised, handlerOnFailed, onAllOver) {
+            if (typeof handlerOnRaised !== 'function') {
+                handlerOnRaised = x => x;
+            }
+            if (typeof handlerOnFailed !== 'function') {
+                handlerOnFailed = e => { throw e }
+            }
+            if (typeof onAllOver !== 'function') {
+                onAllOver = () => {}
+            }
+            this.#onRaise = handlerOnRaised;
+            this.#onError = handlerOnFailed;
+            this.#onAll = onAllOver;
+            const { signal, raiser, thrower } = Signal.withRaisers();
+            try {
+                setTimeout(() => {
+                    switch (this.#detector.state) {
+                        case 1:
+                            this.#handle(raiser, this.#onRaise);
+                            break;
+                        case 2:
+                            this.#handle(raiser, this.#onError);
+                            break;
+                        case 3:
+                            this.#handle(null, this.#onAll);
+                            setTimeout(() => signal.#detector.state = 3);
+                            break;
+                    }
+                }, 0);
+            } catch (e) {
+                thrower(e);
+            }
+            Object.defineProperty(this.#detector, 'state', {
+                set: (state) => {
+                    switch (state) {
+                        case 1:
+                            this.#handle(raiser, this.#onRaise);
+                            break;
+                        case 2:
+                            this.#handle(raiser, this.#onError);
+                            break;
+                        case 3:
+                            this.#handle(null, this.#onAll);
+                            setTimeout(() => signal.#detector.state = 3);
+                            break;
+                    }
+                    this.#detector.s = state;
+                },
+            });
+            return signal;
         }
         /**
          * 新しいシグナル
@@ -101,42 +221,7 @@ const Signal = (() => {
          * @param {HandlerOnFailed} handlerOnFailed stateがFAILEDになったら実行される関数
          */
         receive(handlerOnRaised, handlerOnFailed) {
-            if (typeof handlerOnRaised !== 'function') {
-                handlerOnRaised = x => x;
-            }
-            if (typeof handlerOnFailed !== 'function') {
-                handlerOnFailed = e => { throw e }
-            }
-            const currentThis = this;
-            const { signal, raiser, thrower } = Signal.withRaisers();
-            try {
-                setTimeout(() => {
-                    switch (this.#detector.s) {
-                        case 1:
-                            this.#handle(raiser, handlerOnRaised, currentThis);
-                            break;
-                        case 2:
-                            this.#handle(raiser, handlerOnFailed, currentThis);
-                            break;
-                    }
-                }, 0);
-            } catch (e) {
-                thrower(e);
-            }
-            Object.defineProperty(this.#detector, 'state', {
-                set(state) {
-                    switch (state) {
-                        case 1:
-                            currentThis.#handle(raiser, handlerOnRaised, currentThis);
-                            break;
-                        case 2:
-                            currentThis.#handle(raiser, handlerOnFailed, currentThis);
-                            break;
-                    }
-                    this.s = state;
-                },
-            });
-            return signal;
+            return this.#signalReceive(handlerOnRaised, handlerOnFailed)
         }
         /**
          * 
@@ -144,7 +229,28 @@ const Signal = (() => {
          * @returns 新しいSignal
          */
         catch(handlerOnFailed) {
-            return this.receive(undefined, handlerOnFailed);
+            return this.#signalReceive(undefined, handlerOnFailed);
+        }
+        /**
+         * 
+         * @param {HandlerOnFinally} handlerOnFinally 決定時に呼び出される
+         * @returns 新しいシグナル
+         */
+        finally(handlerOnFinally) {
+            return this.#signalReceive(v => {
+                handlerOnFinally();
+                return v.data;
+            }, e => {
+                handlerOnFinally();
+                throw e.cause;
+            }, () => handlerOnFinally());
+        }
+        /**
+         * 
+         * @param {HandlerOnFinally} handlerOnFinally シグナルが閉まったときに呼び出される
+         */
+        allOver(handlerOnFinally) {
+            return this.#signalReceive(undefined, undefined, handlerOnFinally);
         }
         toOncePromise() {
             return new Promise((resolve, reject) => {
@@ -230,13 +336,13 @@ const Signal = (() => {
                 signals.forEach(signal => {
                     signal.receive(
                         info => {
-                            results.push({data: info.data, status: 'raised'});
+                            results.push({ data: info.data, status: 'raised' });
                             if (++count === signals.length) {
                                 raise(results);
                             }
                         },
                         err => {
-                            results.push({reason: err.cause, status: 'failed'});
+                            results.push({ reason: err.cause, status: 'failed' });
                             if (++count === signals.length) {
                                 raise(results);
                             }
@@ -286,13 +392,14 @@ const Signal = (() => {
             });
         }
     }
+    return Signal;
 })();
 
 class EventSignal extends Signal {
     /**
      * イベントリスナーを登録
-     * @param {HTMLElement} element イベント 要素
-     * @param {keyof WindowEventMap} evType イベント タイプ
+     * @param {EventTarget} element イベント 要素
+     * @param {keyof ElementEventMap} evType イベント タイプ
      * @param {AddEventListenerOptions} options イベント オプション
      */
     static addEventListenerTo(element, evType, options) {
